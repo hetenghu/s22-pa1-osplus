@@ -10,8 +10,8 @@
 #include "threads/palloc.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
-#include "threads/vaddr.h"
-#ifdef USERPROG
+#include "threads/vaddr.h"C
+#ifdef USERPROGC
 #include "userprog/process.h"
 #endif
 
@@ -71,6 +71,12 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+/* I add it for list_insert_ordered */
+bool
+thread_cmp_priority(const struct list_elem *a,const struct list_elem *b,void *aux UNUSED)
+{
+  return list_entry(a, struct thread, elem)->priority > list_entry(b,struct thread,elem)->priority;
+}
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -201,6 +207,14 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  if(thread_current()->priority < priority)
+  {
+    thread_yield();  
+  }
+
+  /* init ticks_blocked = 0, which mean it not blocked (I create it)*/
+  t->ticks_blocked = 0;
+  
   return tid;
 }
 
@@ -237,7 +251,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered(&ready_list, &t->elem,(list_less_func *)&thread_cmp_priority,NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -308,7 +322,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered(&ready_list, &cur->elem,(list_less_func *)&thread_cmp_priority,NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -336,6 +350,7 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  thread_yield();
 }
 
 /* Returns the current thread's priority. */
@@ -446,6 +461,20 @@ is_thread (struct thread *t)
   return t != NULL && t->magic == THREAD_MAGIC;
 }
 
+/* Check is it a blocked thread(I create it)*/
+void
+blocked_thread_check (struct thread *t, void *aux UNUSED)
+{
+  if(t->status == THREAD_BLOCKED && t->ticks_blocked > 0)
+  {
+    t->ticks_blocked--;
+    if(t->ticks_blocked == 0)
+    {
+      thread_unblock(t);
+    }
+  }
+}
+
 /* Does basic initialization of T as a blocked thread named
    NAME. */
 static void
@@ -465,7 +494,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
-  list_push_back (&all_list, &t->allelem);
+  list_insert_ordered(&all_list, &t->allelem,(list_less_func *)&thread_cmp_priority,NULL);
   intr_set_level (old_level);
 }
 
